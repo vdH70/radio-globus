@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Radio-Globus – Weltradio zum Drehen</title>
+<script src="https://unpkg.com/globe.gl@2.34.4/dist/globe.gl.min.js"></script>
+<style>
+  :root { --acc:#5dffb0; --bg:rgba(10,14,24,.82); --line:rgba(255,255,255,.12); }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:#000; color:#e8ecf3; font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; overflow:hidden; }
+  #globe { position:fixed; inset:0; }
+  /* Fadenkreuz in der Mitte */
+  #cross { position:fixed; left:50%; top:50%; width:46px; height:46px; margin:-23px 0 0 -23px; border:2px solid var(--acc); border-radius:50%; pointer-events:none; box-shadow:0 0 18px rgba(93,255,176,.45); transition:transform .2s; }
+  #cross::after { content:""; position:absolute; left:50%; top:50%; width:6px; height:6px; margin:-3px 0 0 -3px; background:var(--acc); border-radius:50%; }
+  #cross.tuning { transform:scale(1.25); }
+  .panel { position:fixed; background:var(--bg); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); border:1px solid var(--line); border-radius:14px; }
+  /* Player unten */
+  #player { left:50%; bottom:16px; transform:translateX(-50%); width:min(560px,calc(100% - 24px)); padding:12px 14px; display:flex; gap:12px; align-items:center; }
+  #logo { width:48px; height:48px; border-radius:10px; background:#1b2233 center/cover no-repeat; flex:none; display:grid; place-items:center; font-size:22px; }
+  #info { flex:1; min-width:0; }
+  #sName { font-weight:650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #sPlace, #sStatus { font-size:12.5px; opacity:.75; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #sStatus { color:var(--acc); opacity:.9; }
+  button { font:inherit; color:inherit; background:#1b2233; border:1px solid var(--line); border-radius:10px; padding:8px 11px; cursor:pointer; }
+  button:hover { background:#252e44; }
+  #playBtn { width:46px; height:46px; border-radius:50%; font-size:18px; background:var(--acc); color:#04140b; border:none; flex:none; }
+  #vol { width:80px; accent-color:var(--acc); }
+  /* Seitenleiste */
+  #side { top:12px; left:12px; width:min(330px,calc(100% - 24px)); max-height:calc(100% - 130px); display:flex; flex-direction:column; overflow:hidden; }
+  #side header { padding:12px 14px 8px; }
+  #side h1 { font-size:17px; margin:0 0 2px; }
+  #count { font-size:12px; opacity:.7; }
+  #search { width:100%; margin-top:10px; padding:9px 11px; border-radius:10px; border:1px solid var(--line); background:#0d1220; color:inherit; font:inherit; }
+  .row { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .row label { font-size:13px; display:flex; align-items:center; gap:6px; opacity:.85; }
+  #listTitle { padding:8px 14px 4px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; opacity:.6; border-top:1px solid var(--line); }
+  #list { overflow-y:auto; padding:0 6px 8px; }
+  .item { padding:7px 8px; border-radius:8px; cursor:pointer; display:flex; gap:8px; align-items:center; }
+  .item:hover { background:rgba(255,255,255,.07); }
+  .item.on { background:rgba(93,255,176,.16); }
+  .item .n { font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item .m { font-size:11.5px; opacity:.6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item > div { min-width:0; }
+  #toggleSide { display:none; }
+  /* Start-Overlay */
+  #start { position:fixed; inset:0; display:grid; place-items:center; background:rgba(0,0,0,.55); z-index:10; }
+  #start .box { text-align:center; padding:28px 26px; max-width:420px; }
+  #start h2 { margin:0 0 8px; font-size:24px; }
+  #start p { opacity:.8; margin:0 0 18px; }
+  #startBtn { background:var(--acc); color:#04140b; border:none; padding:12px 22px; font-size:16px; font-weight:650; border-radius:12px; }
+  #loadBar { height:3px; background:var(--acc); width:0; transition:width .3s; position:fixed; top:0; left:0; z-index:20; }
+  @media (max-width:700px) {
+    #side { max-height:46%; }
+    #side.collapsed #list, #side.collapsed #listTitle, #side.collapsed .row { display:none; }
+    #toggleSide { display:inline-block; float:right; padding:3px 9px; }
+    #vol { display:none; }
+  }
+</style>
+</head>
+<body>
+<div id="loadBar"></div>
+<div id="globe"></div>
+<div id="cross"></div>
+
+<div id="side" class="panel">
+  <header>
+    <button id="toggleSide" title="Liste ein-/ausklappen">☰</button>
+    <h1>📻 Radio-Globus</h1>
+    <div id="count">Lade Sender …</div>
+    <input id="search" type="search" placeholder="Stadt, Land oder Sender suchen …" autocomplete="off">
+    <div class="row">
+      <label><input type="checkbox" id="autoTune" checked> Automatisch einstellen beim Drehen</label>
+    </div>
+    <div class="row">
+      <button id="randomBtn">🎲 Zufall</button>
+      <button id="spinBtn">🌍 Drehen</button>
+    </div>
+  </header>
+  <div id="listTitle">Sender hier</div>
+  <div id="list"></div>
+</div>
+
+<div id="player" class="panel">
+  <div id="logo">📻</div>
+  <div id="info">
+    <div id="sName">Kein Sender</div>
+    <div id="sPlace">Dreh den Globus und ziel mit dem Kreis auf eine Stadt</div>
+    <div id="sStatus"></div>
+  </div>
+  <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" title="Lautstärke">
+  <button id="playBtn" title="Play/Pause">▶</button>
+</div>
+
+<div id="start">
+  <div class="box panel">
+    <h2>🌍 Radio-Globus</h2>
+    <p>Dreh die Weltkugel und richte den grünen Kreis auf eine Stadt – der nächste Radiosender dort wird automatisch gespielt. Oder tipp direkt auf einen Ort.</p>
+    <button id="startBtn">Radio einschalten</button>
+  </div>
+</div>
+
+<audio id="audio" preload="none"></audio>
+
+<script>
+(() => {
+  // ---------- Daten: Radio-Browser (freie, offene Datenbank) ----------
+  const SERVERS = ['de1','de2','fi1','nl1','at1','all'].map(s => `https://${s}.api.radio-browser.info`);
+  const PAGE = 10000, MAX = 50000;
+  const HTTPS_ONLY = location.protocol === 'https:'; // http-Streams werden auf https-Seiten blockiert
+  let api = null;
+  let stations = [];       // {id,name,lat,lng,url,country,cc,state,tags,fav,codec,br}
+  const seen = new Set();
+
+  const $ = id => document.getElementById(id);
+  const audio = $('audio');
+  audio.volume = 0.8;
+
+  async function getJSON(path) {
+    const order = api ? [api, ...SERVERS.filter(s => s !== api)] : SERVERS.slice().sort(() => Math.random() - .5);
+    let lastErr;
+    for (const s of order) {
+      try {
+        const r = await fetch(s + path, { headers: { 'Accept': 'application/json' } });
+        if (!r.ok) throw new Error(r.status);
+        api = s;
+        return await r.json();
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr;
+  }
+
+  function addStations(raw) {
+    let added = 0;
+    for (const s of raw) {
+      const lat = +s.geo_lat, lng = +s.geo_long;
+      const url = s.url_resolved || s.url;
+      if (!url || !isFinite(lat) || !isFinite(lng) || (lat === 0 && lng === 0)) continue;
+      if (s.hls == 1) continue;                       // HLS spielt nicht überall nativ
+      if (HTTPS_ONLY && !url.startsWith('https:')) continue;
+      if (seen.has(s.stationuuid)) continue;
+      seen.add(s.stationuuid);
+      stations.push({
+        id: s.stationuuid, name: (s.name || 'Unbenannt').trim(), lat, lng, url,
+        country: s.country || '', cc: s.countrycode || '', state: s.state || '',
+        tags: (s.tags || '').split(',').slice(0, 3).join(', '),
+        fav: s.favicon || '', codec: s.codec || '', br: s.bitrate || 0
+      });
+      added++;
+    }
+    return added;
+  }
+
+  async function loadAll() {
+    const bar = $('loadBar');
+    for (let off = 0; off < MAX; off += PAGE) {
+      bar.style.width = (10 + 90 * off / MAX) + '%';
+      let raw;
+      try {
+        raw = await getJSON(`/json/stations/search?has_geo_info=true&hidebroken=true&order=clickcount&reverse=true&limit=${PAGE}&offset=${off}`);
+      } catch (e) {
+        if (!stations.length) $('count').textContent = 'Senderliste konnte nicht geladen werden – bitte Internetverbindung prüfen und neu laden.';
+        break;
+      }
+      addStations(raw);
+      updatePoints();
+      $('count').textContent = `${stations.length.toLocaleString('de-DE')} Sender weltweit geladen` + (raw.length === PAGE ? ' … lädt weiter' : '');
+      if (raw.length < PAGE) break;
+    }
+    bar.style.width = '100%';
+    setTimeout(() => bar.style.opacity = 0, 400);
+    $('count').textContent = `${stations.length.toLocaleString('de-DE')} Sender weltweit`;
+  }
+
+  // ---------- Globus ----------
+  const globe = Globe()($('globe'))
+    .globeImageUrl('https://unpkg.com/three-globe@2.31.0/example/img/earth-night.jpg')
+    .bumpImageUrl('https://unpkg.com/three-globe@2.31.0/example/img/earth-topology.png')
+    .backgroundImageUrl('https://unpkg.com/three-globe@2.31.0/example/img/night-sky.png')
+    .atmosphereColor('#5dffb0').atmosphereAltitude(0.18)
+    .pointLat('lat').pointLng('lng')
+    .pointColor(() => '#5dffb0')
+    .pointAltitude(0.004).pointRadius(0.09)
+    .pointsMerge(true)
+    .ringsData([]).ringColor(() => t => `rgba(93,255,176,${1 - t})`)
+    .ringMaxRadius(2.2).ringPropagationSpeed(2).ringRepeatPeriod(900);
+
+  const ctrl = globe.controls();
+  ctrl.autoRotate = true; ctrl.autoRotateSpeed = 0.35;
+  ctrl.enableDamping = true;
+  globe.pointOfView({ lat: 51, lng: 10, altitude: 2.2 }, 0); // Start über Deutschland
+
+  addEventListener('resize', () => globe.width(innerWidth).height(innerHeight));
+
+  let pointTimer;
+  function updatePoints() {
+    clearTimeout(pointTimer);
+    pointTimer = setTimeout(() => globe.pointsData(stations), 50);
+  }
+
+  // ---------- Geometrie ----------
+  const R = 6371, rad = Math.PI / 180;
+  function dist(aLat, aLng, bLat, bLng) {
+    const dLat = (bLat - aLat) * rad, dLng = (bLng - aLng) * rad;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+
+  // Sender an einem Ort: nächster Sender + alle im Umkreis von ~6 km (dieselbe Stadt)
+  function stationsNear(lat, lng, maxKm) {
+    let best = null, bd = Infinity;
+    for (const s of stations) {
+      const d = dist(lat, lng, s.lat, s.lng);
+      if (d < bd) { bd = d; best = s; }
+    }
+    if (!best || bd > maxKm) return [];
+    return stations.filter(s => dist(best.lat, best.lng, s.lat, s.lng) < 6); // nach Beliebtheit sortiert
+  }
+
+  // ---------- Abspielen ----------
+  let current = null, group = [], started = false, tryIdx = 0;
+
+  function place(s) { return [s.state, s.country].filter(Boolean).join(', '); }
+
+  function setStatus(t) { $('sStatus').textContent = t; }
+
+  function play(s, list) {
+    if (list) group = list;
+    current = s;
+    $('sName').textContent = s.name;
+    $('sPlace').textContent = place(s) + (s.tags ? ' · ' + s.tags : '');
+    const logo = $('logo');
+    logo.textContent = '📻'; logo.style.backgroundImage = '';
+    if (s.fav && (!HTTPS_ONLY || s.fav.startsWith('https:'))) {
+      const img = new Image();
+      img.onload = () => { logo.textContent = ''; logo.style.backgroundImage = `url("${s.fav}")`; };
+      img.src = s.fav;
+    }
+    globe.ringsData([{ lat: s.lat, lng: s.lng }]);
+    renderList();
+    if (!started) return;
+    setStatus('Verbinde …');
+    audio.src = s.url;
+    audio.play().catch(() => {});
+    // Klick an die Datenbank melden (hilft der Community bei der Sortierung)
+    fetch(`${api || SERVERS[0]}/json/url/${s.id}`).catch(() => {});
+  }
+
+  audio.addEventListener('playing', () => { setStatus('● Live'); $('playBtn').textContent = '❚❚'; tryIdx = 0; });
+  audio.addEventListener('waiting', () => setStatus('Puffern …'));
+  audio.addEventListener('pause', () => { $('playBtn').textContent = '▶'; if (current) setStatus('Pausiert'); });
+  audio.addEventListener('error', () => {
+    if (!current || !audio.src) return;
+    setStatus('Sender nicht erreichbar – versuche nächsten …');
+    // Nächsten Sender am selben Ort probieren
+    const i = group.indexOf(current);
+    if (group.length > 1 && tryIdx < 5) {
+      tryIdx++;
+      play(group[(i + 1) % group.length]);
+    } else setStatus('Sender gerade nicht erreichbar');
+  });
+
+  $('playBtn').onclick = () => {
+    if (!current) return;
+    if (audio.paused) {
+      if (!audio.src || audio.src === location.href) audio.src = current.url;
+      audio.play().catch(() => {});
+    } else audio.pause();
+  };
+  $('vol').oninput = e => audio.volume = +e.target.value;
+
+  // ---------- Liste ----------
+  function renderList(items = group, title) {
+    $('listTitle').textContent = title || (items.length ? `Sender hier (${items.length})` : 'Sender hier');
+    const list = $('list');
+    list.innerHTML = '';
+    for (const s of items.slice(0, 200)) {
+      const el = document.createElement('div');
+      el.className = 'item' + (current && s.id === current.id ? ' on' : '');
+      el.innerHTML = `<div><div class="n"></div><div class="m"></div></div>`;
+      el.querySelector('.n').textContent = s.name;
+      el.querySelector('.m').textContent = place(s) + (s.br ? ` · ${s.br} kbit/s` : '');
+      el.onclick = () => {
+        if (items !== group) { flyTo(s, true); play(s, stationsNear(s.lat, s.lng, 50)); }
+        else play(s);
+      };
+      list.appendChild(el);
+    }
+  }
+
+  // ---------- Steuerung: Drehen = Einstellen ----------
+  let tuneTimer, ignoreTune = false;
+  globe.onZoom(() => {
+    if (ctrl.autoRotate) return;
+    $('cross').classList.add('tuning');
+    clearTimeout(tuneTimer);
+    tuneTimer = setTimeout(tune, 650);
+  });
+
+  function tune() {
+    $('cross').classList.remove('tuning');
+    if (ignoreTune) { ignoreTune = false; return; }
+    if (!$('autoTune').checked || !stations.length) return;
+    const pov = globe.pointOfView();
+    const maxKm = Math.min(900, Math.max(25, pov.altitude * 220));
+    const near = stationsNear(pov.lat, pov.lng, maxKm);
+    if (!near.length) return;
+    if (current && near.some(s => s.id === current.id)) { group = near; renderList(); return; }
+    play(near[0], near);
+  }
+
+  function flyTo(s, keep) {
+    stopSpin();
+    if (keep) { ignoreTune = true; setTimeout(() => ignoreTune = false, 1800); }
+    const alt = Math.min(globe.pointOfView().altitude, 0.9);
+    globe.pointOfView({ lat: s.lat, lng: s.lng, altitude: alt }, 1000);
+  }
+
+  // Tippen/Klicken auf den Globus: dorthin drehen, dann wird eingestellt
+  globe.onGlobeClick(({ lat, lng }) => {
+    stopSpin();
+    globe.pointOfView({ lat, lng, altitude: globe.pointOfView().altitude }, 700);
+  });
+
+  function stopSpin() { ctrl.autoRotate = false; $('spinBtn').textContent = '🌍 Drehen'; }
+  ['mousedown', 'touchstart', 'wheel'].forEach(ev =>
+    $('globe').addEventListener(ev, stopSpin, { passive: true }));
+  $('spinBtn').onclick = () => {
+    ctrl.autoRotate = !ctrl.autoRotate;
+    $('spinBtn').textContent = ctrl.autoRotate ? '⏸ Stopp' : '🌍 Drehen';
+  };
+
+  $('randomBtn').onclick = () => {
+    if (!stations.length) return;
+    const s = stations[Math.floor(Math.random() * stations.length)];
+    flyTo(s, true);
+    play(s, stationsNear(s.lat, s.lng, 50));
+  };
+
+  // ---------- Suche ----------
+  let searchTimer;
+  $('search').addEventListener('input', e => {
+    clearTimeout(searchTimer);
+    const q = e.target.value.trim().toLowerCase();
+    searchTimer = setTimeout(() => {
+      if (q.length < 2) { renderList(); return; }
+      const hits = stations.filter(s =>
+        s.name.toLowerCase().includes(q) || s.state.toLowerCase().includes(q) ||
+        s.country.toLowerCase().includes(q) || s.tags.toLowerCase().includes(q));
+      renderList(hits, `Suchergebnisse (${hits.length})`);
+    }, 200);
+  });
+
+  $('toggleSide').onclick = () => $('side').classList.toggle('collapsed');
+
+  // ---------- Start ----------
+  $('startBtn').onclick = () => {
+    started = true;
+    $('start').remove();
+    // Audio-Freigabe durch Nutzerklick (Browser-Autoplay-Regeln)
+    audio.play().catch(() => {});
+    if (current) play(current); else if (stations.length) { stopSpin(); tune(); }
+  };
+
+  loadAll();
+})();
+</script>
+</body>
+</html>
